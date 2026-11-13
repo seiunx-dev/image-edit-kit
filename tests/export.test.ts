@@ -12,6 +12,7 @@ import {
   listEncodableImageFormats,
   resolveConvertedFileName,
   resolveEditedFileName,
+  resolveExportQuality,
   resolveImageFileName,
   saveBlob,
   type EditCanvas,
@@ -23,6 +24,14 @@ describe("formats", () => {
     expect(IMAGE_EXPORT_FORMATS.map(imageExportMimeType)).toEqual(["image/png", "image/jpeg", "image/webp"])
     expect(IMAGE_EXPORT_FORMATS.map(imageExportExtension)).toEqual(["png", "jpg", "webp"])
     expect(IMAGE_EXPORT_FORMATS.map(isLossyExportFormat)).toEqual([false, true, true])
+  })
+
+  it("keeps a quality between 0 and 1 and falls back when there is none", () => {
+    expect(resolveExportQuality(0.5)).toBe(0.5)
+    expect(resolveExportQuality(7)).toBe(1)
+    expect(resolveExportQuality(-1)).toBe(0)
+    expect(resolveExportQuality(undefined)).toBe(DEFAULT_EXPORT_QUALITY)
+    expect(resolveExportQuality(Number.NaN)).toBe(DEFAULT_EXPORT_QUALITY)
   })
 
   it("reads a format back from a MIME type", () => {
@@ -128,9 +137,9 @@ describe("encodeImageCanvas", () => {
 
   it("rejects when the canvas cannot be encoded", async () => {
     const { canvas } = recordingCanvas(paint(2, 2, () => [1, 2, 3, 255]), "fail")
-    expect(encodeImageCanvas(canvas)).rejects.toThrow("could not be encoded")
+    await expect(encodeImageCanvas(canvas)).rejects.toThrow("could not be encoded")
     const bare = { width: 1, height: 1 } as unknown as EditCanvas
-    expect(encodeImageCanvas(bare)).rejects.toThrow("cannot be encoded here")
+    await expect(encodeImageCanvas(bare)).rejects.toThrow("cannot be encoded here")
   })
 
   it("really writes each format", async () => {

@@ -249,7 +249,7 @@ function unpremultiplyInto(source: Uint8ClampedArray, target: Uint8ClampedArray)
  */
 export function blurPixels<Buffer extends PixelBuffer>(pixels: Buffer, radius: number): Buffer {
   const spread = Number.isFinite(radius) ? Math.min(MAX_BLUR_RADIUS, radius) : 0
-  if (!(spread > 0) || pixels.width === 0 || pixels.height === 0) {
+  if (spread <= 0 || pixels.width === 0 || pixels.height === 0) {
     return pixels
   }
   const current = premultiply(pixels.data)
@@ -267,51 +267,75 @@ export function blurPixels<Buffer extends PixelBuffer>(pixels: Buffer, radius: n
 
 // ---- Mosaic.
 
+type Block = { left: number; top: number; right: number; bottom: number }
+
+/** The average colour of a block, weighted by coverage so transparent pixels do not darken it. */
+function averageBlock(data: Uint8ClampedArray, width: number, block: Block): [number, number, number, number] {
+  let red = 0
+  let green = 0
+  let blue = 0
+  let alpha = 0
+  for (let y = block.top; y < block.bottom; y += 1) {
+    let index = (y * width + block.left) * 4
+    for (let x = block.left; x < block.right; x += 1, index += 4) {
+      const a = data[index + 3]!
+      red += data[index]! * a
+      green += data[index + 1]! * a
+      blue += data[index + 2]! * a
+      alpha += a
+    }
+  }
+  const count = (block.bottom - block.top) * (block.right - block.left)
+  return alpha > 0 ? [red / alpha, green / alpha, blue / alpha, alpha / count] : [0, 0, 0, 0]
+}
+
+function fillBlock(data: Uint8ClampedArray, width: number, block: Block, color: readonly [number, number, number, number]): void {
+  for (let y = block.top; y < block.bottom; y += 1) {
+    let index = (y * width + block.left) * 4
+    for (let x = block.left; x < block.right; x += 1, index += 4) {
+      data[index] = color[0]
+      data[index + 1] = color[1]
+      data[index + 2] = color[2]
+      data[index + 3] = color[3]
+    }
+  }
+}
+
 /** A mosaic: every `size` × `size` block takes the average colour of its pixels. */
 export function pixelatePixels<Buffer extends PixelBuffer>(pixels: Buffer, size: number): Buffer {
-  const block = Math.floor(size)
-  if (!(block >= 2)) {
+  const side = Math.floor(size)
+  if (Number.isNaN(side) || side < 2) {
     return pixels
   }
   const { data, width, height } = pixels
-  for (let top = 0; top < height; top += block) {
-    const bottom = Math.min(height, top + block)
-    for (let left = 0; left < width; left += block) {
-      const right = Math.min(width, left + block)
-      let red = 0
-      let green = 0
-      let blue = 0
-      let alpha = 0
-      for (let y = top; y < bottom; y += 1) {
-        let index = (y * width + left) * 4
-        for (let x = left; x < right; x += 1, index += 4) {
-          const a = data[index + 3]!
-          red += data[index]! * a
-          green += data[index + 1]! * a
-          blue += data[index + 2]! * a
-          alpha += a
-        }
-      }
-      const count = (bottom - top) * (right - left)
-      const r = alpha > 0 ? red / alpha : 0
-      const g = alpha > 0 ? green / alpha : 0
-      const b = alpha > 0 ? blue / alpha : 0
-      const a = alpha / count
-      for (let y = top; y < bottom; y += 1) {
-        let index = (y * width + left) * 4
-        for (let x = left; x < right; x += 1, index += 4) {
-          data[index] = r
-          data[index + 1] = g
-          data[index + 2] = b
-          data[index + 3] = a
-        }
-      }
+  for (let top = 0; top < height; top += side) {
+    for (let left = 0; left < width; left += side) {
+      const block = { left, top, right: Math.min(width, left + side), bottom: Math.min(height, top + side) }
+      fillBlock(data, width, block, averageBlock(data, width, block))
     }
   }
   return pixels
 }
 
 // ---- Sharpen.
+
+/** Sharpens one row from `source` into `data`; neighbours beyond the picture's edge repeat the edge pixel. */
+function sharpenRow(data: Uint8ClampedArray, source: Uint8ClampedArray, y: number, width: number, height: number, strength: number): void {
+  const row = width * 4
+  const up = y > 0 ? -row : 0
+  const down = y < height - 1 ? row : 0
+  const centre = 1 + 4 * strength
+  for (let x = 0; x < width; x += 1) {
+    const index = (y * width + x) * 4
+    const left = x > 0 ? -4 : 0
+    const right = x < width - 1 ? 4 : 0
+    for (let channel = 0; channel < 3; channel += 1) {
+      const at = index + channel
+      data[at] = source[at]! * centre
+        - strength * (source[at + up]! + source[at + down]! + source[at + left]! + source[at + right]!)
+    }
+  }
+}
 
 /**
  * Sharpens edges by pushing every pixel away from the average of its four
@@ -324,21 +348,8 @@ export function sharpenPixels<Buffer extends PixelBuffer>(pixels: Buffer, amount
     return pixels
   }
   const source = new Uint8ClampedArray(data)
-  const centre = 1 + 4 * strength
-  const row = width * 4
   for (let y = 0; y < height; y += 1) {
-    const up = y > 0 ? -row : 0
-    const down = y < height - 1 ? row : 0
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4
-      const left = x > 0 ? -4 : 0
-      const right = x < width - 1 ? 4 : 0
-      for (let channel = 0; channel < 3; channel += 1) {
-        const at = index + channel
-        data[at] = source[at]! * centre
-          - strength * (source[at + up]! + source[at + down]! + source[at + left]! + source[at + right]!)
-      }
-    }
+    sharpenRow(data, source, y, width, height, strength)
   }
   return pixels
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import {
   intersectImageRect,
   isFullImageRect,
+  isPositive,
   rectFromPoints,
   screenToImagePoint,
   simplifyPoints,
@@ -20,6 +21,10 @@ describe("rectangles", () => {
   it("builds a rectangle from a drag in any direction", () => {
     expect(rectFromPoints({ x: 300, y: 150 }, { x: 100, y: 50 }, size)).toEqual({ x: 100, y: 50, width: 200, height: 100 })
     expect(rectFromPoints({ x: -50, y: 20 }, { x: 900, y: 500 }, size)).toEqual({ x: 0, y: 20, width: 400, height: 180 })
+  })
+
+  it("tells a number above zero from zero, a negative number and NaN", () => {
+    expect([1, 0.001, 0, -1, Number.NaN].map(isPositive)).toEqual([true, true, false, false, false])
   })
 
   it("knows the whole picture", () => {

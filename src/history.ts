@@ -26,13 +26,13 @@ export function canRedoImageEdit(history: ImageEditHistory): boolean {
 
 /** Takes the newest operation back. */
 export function undoImageEdit(history: ImageEditHistory): ImageEditHistory {
-  const last = history.ops[history.ops.length - 1]
+  const last = history.ops.at(-1)
   return last ? { ops: history.ops.slice(0, -1), undone: [...history.undone, last] } : history
 }
 
 /** Applies the operation undone last again. */
 export function redoImageEdit(history: ImageEditHistory): ImageEditHistory {
-  const last = history.undone[history.undone.length - 1]
+  const last = history.undone.at(-1)
   return last ? { ops: [...history.ops, last], undone: history.undone.slice(0, -1) } : history
 }
 

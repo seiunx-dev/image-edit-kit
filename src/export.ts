@@ -39,6 +39,11 @@ export function imageExportFormatOfMimeType(type: string | null | undefined): Im
   return IMAGE_EXPORT_FORMATS.find((format) => MIME_TYPES[format] === normalized) ?? (normalized === "image/jpg" ? "jpeg" : null)
 }
 
+/** A quality between 0 and 1; anything that is not a number becomes `DEFAULT_EXPORT_QUALITY`. */
+export function resolveExportQuality(quality: number | null | undefined): number {
+  return typeof quality === "number" && Number.isFinite(quality) ? Math.min(1, Math.max(0, quality)) : DEFAULT_EXPORT_QUALITY
+}
+
 export type EncodeOptions = RenderOptions & {
   /** Defaults to `png`. */
   format?: ImageExportFormat
@@ -56,9 +61,7 @@ export type EncodeOptions = RenderOptions & {
 export function encodeImageCanvas(canvas: EditCanvas, options: EncodeOptions = {}): Promise<Blob> {
   const format = options.format ?? "png"
   const type = MIME_TYPES[format]
-  const quality = isLossyExportFormat(format)
-    ? Math.min(1, Math.max(0, Number.isFinite(options.quality) ? (options.quality as number) : DEFAULT_EXPORT_QUALITY))
-    : undefined
+  const quality = isLossyExportFormat(format) ? resolveExportQuality(options.quality) : undefined
 
   let output = canvas
   if (format === "jpeg") {
@@ -166,7 +169,7 @@ export function resolveImageFileName(url: string | null | undefined, fallback = 
   }
   try {
     const name = decodeURIComponent(new URL(url, "https://local.invalid").pathname.split("/").pop() ?? "")
-    return name && name.includes(".") ? name : fallback
+    return name.includes(".") ? name : fallback
   } catch {
     return fallback
   }

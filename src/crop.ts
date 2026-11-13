@@ -95,6 +95,32 @@ export function fitCropRectToAspect(rect: ImageRect, ratio: number, size: ImageS
   }, size)
 }
 
+/** Which way a handle pulls along one axis: 1 towards `far` ("e", "s"), -1 towards `near` ("w", "n"), 0 not at all. */
+function pullOf(handle: CropHandle, far: string, near: string): -1 | 0 | 1 {
+  if (handle.includes(far)) {
+    return 1
+  }
+  return handle.includes(near) ? -1 : 0
+}
+
+/**
+ * One axis of a selection that is being resized: how long it may get, and
+ * where it starts once it has a new length. Pulled towards the far side the
+ * near side stays put, and the other way round; not pulled at all (an edge
+ * handle of the other axis) it grows about its middle.
+ */
+function resizeAxis(pull: -1 | 0 | 1, start: number, length: number, limit: number): { room: number; startFor: (next: number) => number } {
+  const end = start + length
+  if (pull === 1) {
+    return { room: limit - start, startFor: () => start }
+  }
+  if (pull === -1) {
+    return { room: end, startFor: (next) => end - next }
+  }
+  const centre = start + length / 2
+  return { room: 2 * Math.min(centre, limit - centre), startFor: (next) => centre - next / 2 }
+}
+
 /**
  * `adjustCropRect` with the shape locked to `ratio`. The side opposite the
  * handle stays put (an edge handle keeps the selection centred across the
@@ -112,28 +138,19 @@ export function adjustCropRectWithAspect(
   if (handle === "move") {
     return adjustCropRect(rect, handle, dx, dy, size)
   }
-  const horizontal = handle.includes("e") ? 1 : handle.includes("w") ? -1 : 0
-  const vertical = handle.includes("s") ? 1 : handle.includes("n") ? -1 : 0
-  const right = rect.x + rect.width
-  const bottom = rect.y + rect.height
-  const centerX = rect.x + rect.width / 2
-  const centerY = rect.y + rect.height / 2
+  const horizontal = pullOf(handle, "e", "w")
+  const vertical = pullOf(handle, "s", "n")
+  const across = resizeAxis(horizontal, rect.x, rect.width, size.width)
+  const down = resizeAxis(vertical, rect.y, rect.height, size.height)
 
-  const fromWidth = horizontal !== 0 ? rect.width + horizontal * dx : Number.NEGATIVE_INFINITY
-  const fromHeight = vertical !== 0 ? (rect.height + vertical * dy) * ratio : Number.NEGATIVE_INFINITY
+  const fromWidth = horizontal === 0 ? Number.NEGATIVE_INFINITY : rect.width + horizontal * dx
+  const fromHeight = vertical === 0 ? Number.NEGATIVE_INFINITY : (rect.height + vertical * dy) * ratio
   const wanted = Math.max(fromWidth, fromHeight)
 
-  const maxWidth = horizontal === 1 ? size.width - rect.x : horizontal === -1 ? right : 2 * Math.min(centerX, size.width - centerX)
-  const maxHeight = vertical === 1 ? size.height - rect.y : vertical === -1 ? bottom : 2 * Math.min(centerY, size.height - centerY)
   const minWidth = Math.max(MIN_CROP_SIZE, MIN_CROP_SIZE * ratio)
-  const limit = Math.min(maxWidth, maxHeight * ratio)
+  const limit = Math.min(across.room, down.room * ratio)
   const width = Math.min(limit, Math.max(Math.min(minWidth, limit), wanted))
   const height = width / ratio
 
-  return clampCropRect({
-    x: horizontal === 1 ? rect.x : horizontal === -1 ? right - width : centerX - width / 2,
-    y: vertical === 1 ? rect.y : vertical === -1 ? bottom - height : centerY - height / 2,
-    width,
-    height,
-  }, size)
+  return clampCropRect({ x: across.startFor(width), y: down.startFor(height), width, height }, size)
 }

@@ -8,6 +8,7 @@
 import {
   intersectImageRect,
   isFullImageRect,
+  isPositive,
   type ImagePoint,
   type ImageRect,
   type ImageSize,
@@ -145,6 +146,11 @@ export function isNeutralAdjustment(adjustments: ImageAdjustments): boolean {
   return IMAGE_ADJUSTMENT_KEYS.every((key) => !adjustments[key])
 }
 
+/** True when a region is given and none of it lies on the picture. */
+function missesPicture(rect: ImageRect | undefined, size: ImageSize): boolean {
+  return rect != null && intersectImageRect(rect, size) == null
+}
+
 /** True when applying `op` to a picture of `size` would leave it as it is. */
 export function isNoopImageEditOp(op: ImageEditOp, size: ImageSize): boolean {
   switch (op.kind) {
@@ -162,19 +168,19 @@ export function isNoopImageEditOp(op: ImageEditOp, size: ImageSize): boolean {
     case "adjust":
       return isNeutralAdjustment(op)
     case "filter":
-      return op.amount != null && !(op.amount > 0)
+      return op.amount != null && !isPositive(op.amount)
     case "blur":
-      return !(op.radius > 0) || (op.rect != null && intersectImageRect(op.rect, size) == null)
+      return !isPositive(op.radius) || missesPicture(op.rect, size)
     case "sharpen":
-      return !(op.amount > 0)
+      return !isPositive(op.amount)
     case "pixelate":
-      return !(op.size >= MIN_PIXELATE_SIZE) || (op.rect != null && intersectImageRect(op.rect, size) == null)
+      return Number.isNaN(op.size) || op.size < MIN_PIXELATE_SIZE || missesPicture(op.rect, size)
     case "stroke":
-      return op.points.length === 0 || !(op.width > 0) || op.opacity === 0
+      return op.points.length === 0 || !isPositive(op.width) || op.opacity === 0
     case "shape":
-      return !(op.width > 0) && !op.fill
+      return !isPositive(op.width) && !op.fill
     case "text":
-      return op.text.trim() === "" || !(op.size > 0)
+      return op.text.trim() === "" || !isPositive(op.size)
   }
 }
 
@@ -199,6 +205,7 @@ export function scaleImageSize(size: ImageSize, factor: number): ImageSize {
 // ---- Reading operations back from storage or a URL.
 
 type Json = Record<string, unknown>
+type OpOf<Kind extends ImageEditOpKind> = Extract<ImageEditOp, { kind: Kind }>
 
 function isRecord(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -208,23 +215,9 @@ function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
 }
 
-function parsePoint(value: unknown): ImagePoint | null {
-  return isRecord(value) && finite(value.x) && finite(value.y) ? { x: value.x, y: value.y } : null
-}
-
-function parseRect(value: unknown): ImageRect | null {
-  return isRecord(value) && finite(value.x) && finite(value.y) && finite(value.width) && finite(value.height)
-    && value.width > 0 && value.height > 0
-    ? { x: value.x, y: value.y, width: value.width, height: value.height }
-    : null
-}
-
-function parseOptionalRect(value: Json): { rect?: ImageRect } | null {
-  if (value.rect == null) {
-    return {}
-  }
-  const rect = parseRect(value.rect)
-  return rect ? { rect } : null
+/** A finite number of at least `min`. */
+function atLeast(value: unknown, min: number): value is number {
+  return finite(value) && value >= min
 }
 
 function color(value: unknown): value is string {
@@ -235,170 +228,218 @@ function oneOf<const Options extends readonly unknown[]>(options: Options, value
   return options.includes(value)
 }
 
-/** One operation from untrusted data (JSON), or `null` when it is not a valid operation. */
-export function parseImageEditOp(value: unknown): ImageEditOp | null {
-  if (!isRecord(value)) {
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function parsePoint(value: unknown): ImagePoint | null {
+  return isRecord(value) && finite(value.x) && finite(value.y) ? { x: value.x, y: value.y } : null
+}
+
+function parsePoints(value: unknown): ImagePoint[] | null {
+  if (!Array.isArray(value)) {
     return null
   }
-  switch (value.kind) {
-    case "rotate":
-      return value.turns === 1 || value.turns === -1 ? { kind: "rotate", turns: value.turns } : null
-    case "flip":
-      return value.axis === "horizontal" || value.axis === "vertical" ? { kind: "flip", axis: value.axis } : null
-    case "crop": {
-      const rect = parseRect(value.rect)
-      return rect ? { kind: "crop", rect } : null
-    }
-    case "straighten":
-      if (!finite(value.degrees) || (value.fit != null && value.fit !== "trim" && value.fit !== "expand")) {
-        return null
-      }
-      return { kind: "straighten", degrees: clampStraightenDegrees(value.degrees), ...(value.fit ? { fit: value.fit } : {}) }
-    case "resize":
-      return finite(value.width) && finite(value.height) && value.width >= 1 && value.height >= 1
-        ? { kind: "resize", ...resolveResizeSize({ width: value.width, height: value.height }) }
-        : null
-    case "adjust": {
-      const op: ImageEditOp = { kind: "adjust" }
-      for (const key of IMAGE_ADJUSTMENT_KEYS) {
-        const amount = value[key]
-        if (amount == null) {
-          continue
-        }
-        if (!finite(amount)) {
-          return null
-        }
-        const limit = key === "hue" ? 180 : 100
-        op[key] = Math.min(limit, Math.max(-limit, amount))
-      }
-      return op
-    }
-    case "filter":
-      if (!oneOf(IMAGE_FILTER_NAMES, value.name) || (value.amount != null && !finite(value.amount))) {
-        return null
-      }
-      return {
-        kind: "filter",
-        name: value.name,
-        ...(value.amount != null ? { amount: Math.min(1, Math.max(0, value.amount)) } : {}),
-      }
-    case "blur": {
-      const region = parseOptionalRect(value)
-      return region && finite(value.radius) && value.radius >= 0
-        ? { kind: "blur", radius: Math.min(MAX_BLUR_RADIUS, value.radius), ...region }
-        : null
-    }
-    case "sharpen":
-      return finite(value.amount) && value.amount >= 0 ? { kind: "sharpen", amount: Math.min(100, value.amount) } : null
-    case "pixelate": {
-      const region = parseOptionalRect(value)
-      return region && finite(value.size) && value.size >= MIN_PIXELATE_SIZE
-        ? { kind: "pixelate", size: Math.round(value.size), ...region }
-        : null
-    }
-    case "stroke": {
-      if (!Array.isArray(value.points) || !color(value.color) || !finite(value.width) || value.width <= 0) {
-        return null
-      }
-      if (value.opacity != null && !finite(value.opacity)) {
-        return null
-      }
-      const points: ImagePoint[] = []
-      for (const entry of value.points) {
-        const point = parsePoint(entry)
-        if (!point) {
-          return null
-        }
-        points.push(point)
-      }
-      return {
-        kind: "stroke",
-        points,
-        color: value.color,
-        width: value.width,
-        ...(value.opacity != null ? { opacity: Math.min(1, Math.max(0, value.opacity)) } : {}),
-      }
-    }
-    case "shape": {
-      const from = parsePoint(value.from)
-      const to = parsePoint(value.to)
-      if (!from || !to || !oneOf(IMAGE_SHAPE_KINDS, value.shape) || !color(value.color) || !finite(value.width) || value.width < 0) {
-        return null
-      }
-      if (value.fill != null && !color(value.fill)) {
-        return null
-      }
-      return {
-        kind: "shape",
-        shape: value.shape,
-        from,
-        to,
-        color: value.color,
-        width: value.width,
-        ...(value.fill != null ? { fill: value.fill } : {}),
-      }
-    }
-    case "text": {
-      const at = parsePoint(value.at)
-      if (!at || typeof value.text !== "string" || !finite(value.size) || value.size <= 0 || !color(value.color)) {
-        return null
-      }
-      if (value.font != null && (typeof value.font !== "string" || value.font.length > 256)) {
-        return null
-      }
-      if (value.weight != null && typeof value.weight !== "string" && !finite(value.weight)) {
-        return null
-      }
-      if (value.align != null && !oneOf(IMAGE_TEXT_ALIGNS, value.align)) {
-        return null
-      }
-      let outline: { color: string; width: number } | undefined
-      if (value.outline != null) {
-        if (!isRecord(value.outline) || !color(value.outline.color) || !finite(value.outline.width) || value.outline.width < 0) {
-          return null
-        }
-        outline = { color: value.outline.color, width: value.outline.width }
-      }
-      if (value.italic != null && typeof value.italic !== "boolean") {
-        return null
-      }
-      if (value.rotation != null && !finite(value.rotation)) {
-        return null
-      }
-      let background: { color: string; padding?: number; radius?: number } | undefined
-      if (value.background != null) {
-        const plate = value.background
-        if (!isRecord(plate) || !color(plate.color)) {
-          return null
-        }
-        if ((plate.padding != null && !(finite(plate.padding) && plate.padding >= 0))
-          || (plate.radius != null && !(finite(plate.radius) && plate.radius >= 0))) {
-          return null
-        }
-        background = {
-          color: plate.color,
-          ...(plate.padding != null ? { padding: plate.padding } : {}),
-          ...(plate.radius != null ? { radius: plate.radius } : {}),
-        }
-      }
-      return {
-        kind: "text",
-        text: value.text,
-        at,
-        size: value.size,
-        color: value.color,
-        ...(value.font != null ? { font: value.font } : {}),
-        ...(value.weight != null ? { weight: value.weight } : {}),
-        ...(value.italic != null ? { italic: value.italic } : {}),
-        ...(value.align != null ? { align: value.align } : {}),
-        ...(outline ? { outline } : {}),
-        ...(background ? { background } : {}),
-        ...(value.rotation != null ? { rotation: value.rotation } : {}),
-      }
-    }
-    default:
+  const points: ImagePoint[] = []
+  for (const entry of value) {
+    const point = parsePoint(entry)
+    if (!point) {
       return null
+    }
+    points.push(point)
   }
+  return points
+}
+
+function parseRect(value: unknown): ImageRect | null {
+  return isRecord(value) && finite(value.x) && finite(value.y) && finite(value.width) && finite(value.height)
+    && value.width > 0 && value.height > 0
+    ? { x: value.x, y: value.y, width: value.width, height: value.height }
+    : null
+}
+
+/** The optional region of a blur or a mosaic: `{}` when there is none, `null` when it is not a rectangle. */
+function parseRegion(value: Json): { rect?: ImageRect } | null {
+  if (value.rect == null) {
+    return {}
+  }
+  const rect = parseRect(value.rect)
+  return rect ? { rect } : null
+}
+
+/**
+ * The optional fields of an operation that are copied as they are: each is
+ * left out when missing and makes the whole operation invalid when it does
+ * not pass its check.
+ */
+function parseOptions<Result>(value: Json, checks: { [Key in keyof Result]-?: (given: unknown) => boolean }): Partial<Result> | null {
+  const result: Partial<Result> = {}
+  for (const key of Object.keys(checks) as (keyof Result & string)[]) {
+    const given = value[key]
+    if (given == null) {
+      continue
+    }
+    if (!checks[key](given)) {
+      return null
+    }
+    result[key] = given as Result[typeof key]
+  }
+  return result
+}
+
+function parseRotate(value: Json): OpOf<"rotate"> | null {
+  return value.turns === 1 || value.turns === -1 ? { kind: "rotate", turns: value.turns } : null
+}
+
+function parseFlip(value: Json): OpOf<"flip"> | null {
+  return value.axis === "horizontal" || value.axis === "vertical" ? { kind: "flip", axis: value.axis } : null
+}
+
+function parseCrop(value: Json): OpOf<"crop"> | null {
+  const rect = parseRect(value.rect)
+  return rect ? { kind: "crop", rect } : null
+}
+
+function parseStraighten(value: Json): OpOf<"straighten"> | null {
+  const options = parseOptions<{ fit: StraightenFit }>(value, { fit: (given) => given === "trim" || given === "expand" })
+  return finite(value.degrees) && options ? { kind: "straighten", degrees: clampStraightenDegrees(value.degrees), ...options } : null
+}
+
+function parseResize(value: Json): OpOf<"resize"> | null {
+  return atLeast(value.width, 1) && atLeast(value.height, 1)
+    ? { kind: "resize", ...resolveResizeSize({ width: value.width, height: value.height }) }
+    : null
+}
+
+function parseAdjust(value: Json): OpOf<"adjust"> | null {
+  const op: OpOf<"adjust"> = { kind: "adjust" }
+  for (const key of IMAGE_ADJUSTMENT_KEYS) {
+    const amount = value[key]
+    if (amount == null) {
+      continue
+    }
+    if (!finite(amount)) {
+      return null
+    }
+    const limit = key === "hue" ? 180 : 100
+    op[key] = clamp(amount, -limit, limit)
+  }
+  return op
+}
+
+function parseFilter(value: Json): OpOf<"filter"> | null {
+  const options = parseOptions<{ amount: number }>(value, { amount: finite })
+  if (!oneOf(IMAGE_FILTER_NAMES, value.name) || !options) {
+    return null
+  }
+  return { kind: "filter", name: value.name, ...(options.amount == null ? {} : { amount: clamp(options.amount, 0, 1) }) }
+}
+
+function parseBlur(value: Json): OpOf<"blur"> | null {
+  const region = parseRegion(value)
+  return region && atLeast(value.radius, 0) ? { kind: "blur", radius: Math.min(MAX_BLUR_RADIUS, value.radius), ...region } : null
+}
+
+function parseSharpen(value: Json): OpOf<"sharpen"> | null {
+  return atLeast(value.amount, 0) ? { kind: "sharpen", amount: Math.min(100, value.amount) } : null
+}
+
+function parsePixelate(value: Json): OpOf<"pixelate"> | null {
+  const region = parseRegion(value)
+  return region && atLeast(value.size, MIN_PIXELATE_SIZE) ? { kind: "pixelate", size: Math.round(value.size), ...region } : null
+}
+
+function parseStroke(value: Json): OpOf<"stroke"> | null {
+  const points = parsePoints(value.points)
+  const options = parseOptions<{ opacity: number }>(value, { opacity: finite })
+  if (!points || !options || !color(value.color) || !finite(value.width) || value.width <= 0) {
+    return null
+  }
+  return {
+    kind: "stroke",
+    points,
+    color: value.color,
+    width: value.width,
+    ...(options.opacity == null ? {} : { opacity: clamp(options.opacity, 0, 1) }),
+  }
+}
+
+function parseShape(value: Json): OpOf<"shape"> | null {
+  const from = parsePoint(value.from)
+  const to = parsePoint(value.to)
+  const options = parseOptions<{ fill: string }>(value, { fill: color })
+  if (!from || !to || !options || !oneOf(IMAGE_SHAPE_KINDS, value.shape) || !color(value.color) || !atLeast(value.width, 0)) {
+    return null
+  }
+  return { kind: "shape", shape: value.shape, from, to, color: value.color, width: value.width, ...options }
+}
+
+type TextOp = OpOf<"text">
+
+/** A text's outline: `{}` when there is none, `null` when it is not one. */
+function parseTextOutline(value: unknown): Pick<TextOp, "outline"> | null {
+  if (value == null) {
+    return {}
+  }
+  return isRecord(value) && color(value.color) && atLeast(value.width, 0)
+    ? { outline: { color: value.color, width: value.width } }
+    : null
+}
+
+/** A text's plate: `{}` when there is none, `null` when it is not one. */
+function parseTextBackground(value: unknown): Pick<TextOp, "background"> | null {
+  if (value == null) {
+    return {}
+  }
+  if (!isRecord(value) || !color(value.color)) {
+    return null
+  }
+  const sizes = parseOptions<{ padding: number; radius: number }>(value, {
+    padding: (given) => atLeast(given, 0),
+    radius: (given) => atLeast(given, 0),
+  })
+  return sizes ? { background: { color: value.color, ...sizes } } : null
+}
+
+function parseText(value: Json): TextOp | null {
+  const at = parsePoint(value.at)
+  if (!at || typeof value.text !== "string" || !finite(value.size) || value.size <= 0 || !color(value.color)) {
+    return null
+  }
+  const style = parseOptions<Pick<TextOp, "font" | "weight" | "italic" | "align" | "rotation">>(value, {
+    font: (given) => typeof given === "string" && given.length <= 256,
+    weight: (given) => typeof given === "string" || finite(given),
+    italic: (given) => typeof given === "boolean",
+    align: (given) => oneOf(IMAGE_TEXT_ALIGNS, given),
+    rotation: finite,
+  })
+  const outline = parseTextOutline(value.outline)
+  const background = parseTextBackground(value.background)
+  if (!style || !outline || !background) {
+    return null
+  }
+  return { kind: "text", text: value.text, at, size: value.size, color: value.color, ...style, ...outline, ...background }
+}
+
+const PARSERS: { [Kind in ImageEditOpKind]: (value: Json) => OpOf<Kind> | null } = {
+  rotate: parseRotate,
+  flip: parseFlip,
+  crop: parseCrop,
+  straighten: parseStraighten,
+  resize: parseResize,
+  adjust: parseAdjust,
+  filter: parseFilter,
+  blur: parseBlur,
+  sharpen: parseSharpen,
+  pixelate: parsePixelate,
+  stroke: parseStroke,
+  shape: parseShape,
+  text: parseText,
+}
+
+/** One operation from untrusted data (JSON), or `null` when it is not a valid operation. */
+export function parseImageEditOp(value: unknown): ImageEditOp | null {
+  return isRecord(value) && oneOf(IMAGE_EDIT_OP_KINDS, value.kind) ? PARSERS[value.kind](value) : null
 }
 
 /**

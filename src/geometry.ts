@@ -8,6 +8,11 @@ export function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+/** True for a number above zero; false for zero, a negative number and NaN. */
+export function isPositive(value: number): boolean {
+  return value > 0
+}
+
 /** True when the rectangle is the whole picture (applying it would change nothing). */
 export function isFullImageRect(rect: ImageRect, size: ImageSize): boolean {
   return rect.x === 0 && rect.y === 0 && rect.width === size.width && rect.height === size.height

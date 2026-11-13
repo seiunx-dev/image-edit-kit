@@ -8,7 +8,7 @@
  * canvas with the standard 2D API, passed as `createCanvas`).
  */
 
-import { intersectImageRect, type ImagePoint, type ImageRect, type ImageSize } from "./geometry"
+import { intersectImageRect, isPositive, type ImagePoint, type ImageRect, type ImageSize } from "./geometry"
 import {
   MIN_PIXELATE_SIZE,
   isNeutralAdjustment,
@@ -116,13 +116,12 @@ function withPixels(
 ): EditCanvas {
   const canvas = copyImageSource(source, options)
   const region = intersectImageRect(rect ?? { x: 0, y: 0, width: canvas.width, height: canvas.height }, canvas)
-  if (!region) {
-    return canvas
+  if (region) {
+    const context = getEditContext(canvas)
+    const pixels = context.getImageData(region.x, region.y, region.width, region.height)
+    change(pixels)
+    context.putImageData(pixels, region.x, region.y)
   }
-  const context = getEditContext(canvas)
-  const pixels = context.getImageData(region.x, region.y, region.width, region.height)
-  change(pixels)
-  context.putImageData(pixels, region.x, region.y)
   return canvas
 }
 
@@ -140,13 +139,13 @@ function tracePoints(context: EditContext, points: readonly ImagePoint[]): void 
     const next = points[index + 1]!
     context.quadraticCurveTo(point.x, point.y, (point.x + next.x) / 2, (point.y + next.y) / 2)
   }
-  const last = points[points.length - 1]!
+  const last = points.at(-1)!
   context.lineTo(last.x, last.y)
 }
 
 function drawStroke(context: EditContext, op: Extract<ImageEditOp, { kind: "stroke" }>): void {
   const first = op.points[0]
-  if (!first || !(op.width > 0)) {
+  if (!first || !isPositive(op.width)) {
     return
   }
   context.globalAlpha = op.opacity == null ? 1 : Math.min(1, Math.max(0, op.opacity))
@@ -242,13 +241,15 @@ export const TEXT_BACKGROUND_PADDING = 0.3
 /** A text plate's corner radius when none is given, as a multiple of the font size. */
 export const TEXT_BACKGROUND_RADIUS = 0.2
 
+/** How much of the lines' width lies to the left of the anchor, for each alignment. */
+const TEXT_ALIGN_SHARE = { left: 0, center: 0.5, right: 1 } as const
+
 /** The lines' box: as wide as the widest line, placed by the alignment, without any padding. */
 function textLinesBox(context: EditContext, op: TextOp): ImageRect {
   const lines = op.text.split("\n")
   const width = Math.max(0, ...lines.map((line) => context.measureText(line).width))
-  const align = op.align ?? "left"
   return {
-    x: align === "left" ? op.at.x : align === "center" ? op.at.x - width / 2 : op.at.x - width,
+    x: op.at.x - width * TEXT_ALIGN_SHARE[op.align ?? "left"],
     y: op.at.y,
     // The last line has no line gap under it.
     width,
@@ -261,7 +262,7 @@ function textPadding(op: TextOp): number {
 }
 
 function drawText(context: EditContext, op: TextOp): void {
-  if (!(op.size > 0)) {
+  if (!isPositive(op.size)) {
     return
   }
   context.font = textFont(op)
@@ -352,80 +353,104 @@ function drawOver(source: ImageSource, options: RenderOptions | undefined, draw:
   return canvas
 }
 
+type OpOf<Kind extends ImageEditOp["kind"]> = Extract<ImageEditOp, { kind: Kind }>
+
+function rotateQuarter(source: ImageSource, op: OpOf<"rotate">, options: RenderOptions | undefined): EditCanvas {
+  const size = imageSourceSize(source)
+  const { canvas, context } = blank({ width: size.height, height: size.width }, options)
+  context.translate(canvas.width / 2, canvas.height / 2)
+  context.rotate((op.turns * Math.PI) / 2)
+  context.drawImage(source, -size.width / 2, -size.height / 2, size.width, size.height)
+  return canvas
+}
+
+function flip(source: ImageSource, op: OpOf<"flip">, options: RenderOptions | undefined): EditCanvas {
+  const size = imageSourceSize(source)
+  const { canvas, context } = blank(size, options)
+  if (op.axis === "horizontal") {
+    context.translate(size.width, 0)
+    context.scale(-1, 1)
+  } else {
+    context.translate(0, size.height)
+    context.scale(1, -1)
+  }
+  context.drawImage(source, 0, 0, size.width, size.height)
+  return canvas
+}
+
+function crop(source: ImageSource, op: OpOf<"crop">, options: RenderOptions | undefined): EditCanvas {
+  const rect = resolveCropRect(op.rect, imageSourceSize(source))
+  if (!rect) {
+    return copyImageSource(source, options)
+  }
+  const { canvas, context } = blank(rect, options)
+  context.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height)
+  return canvas
+}
+
+function straighten(source: ImageSource, op: OpOf<"straighten">, options: RenderOptions | undefined): EditCanvas {
+  const degrees = clampStraightenDegrees(op.degrees)
+  if (degrees === 0) {
+    return copyImageSource(source, options)
+  }
+  const size = imageSourceSize(source)
+  const { canvas, context } = blank(resolveStraightenSize(size, degrees, op.fit), options)
+  smooth(context)
+  context.translate(canvas.width / 2, canvas.height / 2)
+  context.rotate((degrees * Math.PI) / 180)
+  context.drawImage(source, -size.width / 2, -size.height / 2, size.width, size.height)
+  return canvas
+}
+
+function resize(source: ImageSource, op: OpOf<"resize">, options: RenderOptions | undefined): EditCanvas {
+  const size = imageSourceSize(source)
+  const target = resolveResizeSize(op)
+  return target.width === size.width && target.height === size.height
+    ? copyImageSource(source, options)
+    : resample(source, size, target, options)
+}
+
+type PixelChange = { rect?: ImageRect; change: (pixels: PixelBuffer) => void }
+
+/** What a pixel operation does to the bytes and where, or `null` when it would change nothing. */
+function pixelChangeOf(op: OpOf<"adjust" | "filter" | "blur" | "sharpen" | "pixelate">): PixelChange | null {
+  switch (op.kind) {
+    case "adjust":
+      return isNeutralAdjustment(op) ? null : { change: (pixels) => applyColorMatrix(pixels, adjustmentColorMatrix(op)) }
+    case "filter":
+      return { change: (pixels) => applyColorMatrix(pixels, filterColorMatrix(op.name, op.amount)) }
+    case "blur":
+      return isPositive(op.radius) ? { rect: op.rect, change: (pixels) => blurPixels(pixels, op.radius) } : null
+    case "sharpen":
+      return isPositive(op.amount) ? { change: (pixels) => sharpenPixels(pixels, op.amount) } : null
+    case "pixelate":
+      return op.size >= MIN_PIXELATE_SIZE ? { rect: op.rect, change: (pixels) => pixelatePixels(pixels, op.size) } : null
+  }
+}
+
 /** One operation applied to `source`, on a new canvas. `source` is left as it is. */
 export function applyImageEditOp(source: ImageSource, op: ImageEditOp, options?: RenderOptions): EditCanvas {
-  const size = imageSourceSize(source)
   switch (op.kind) {
-    case "rotate": {
-      const { canvas, context } = blank({ width: size.height, height: size.width }, options)
-      context.translate(canvas.width / 2, canvas.height / 2)
-      context.rotate((op.turns * Math.PI) / 2)
-      context.drawImage(source, -size.width / 2, -size.height / 2, size.width, size.height)
-      return canvas
-    }
-    case "flip": {
-      const { canvas, context } = blank(size, options)
-      if (op.axis === "horizontal") {
-        context.translate(size.width, 0)
-        context.scale(-1, 1)
-      } else {
-        context.translate(0, size.height)
-        context.scale(1, -1)
-      }
-      context.drawImage(source, 0, 0, size.width, size.height)
-      return canvas
-    }
-    case "crop": {
-      const rect = resolveCropRect(op.rect, size)
-      if (!rect) {
-        return copyImageSource(source, options)
-      }
-      const { canvas, context } = blank(rect, options)
-      context.drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height)
-      return canvas
-    }
-    case "straighten": {
-      const degrees = clampStraightenDegrees(op.degrees)
-      if (degrees === 0) {
-        return copyImageSource(source, options)
-      }
-      const { canvas, context } = blank(resolveStraightenSize(size, degrees, op.fit), options)
-      smooth(context)
-      context.translate(canvas.width / 2, canvas.height / 2)
-      context.rotate((degrees * Math.PI) / 180)
-      context.drawImage(source, -size.width / 2, -size.height / 2, size.width, size.height)
-      return canvas
-    }
-    case "resize": {
-      const target = resolveResizeSize(op)
-      return target.width === size.width && target.height === size.height
-        ? copyImageSource(source, options)
-        : resample(source, size, target, options)
-    }
-    case "adjust":
-      return isNeutralAdjustment(op)
-        ? copyImageSource(source, options)
-        : withPixels(source, undefined, options, (pixels) => applyColorMatrix(pixels, adjustmentColorMatrix(op)))
-    case "filter":
-      return withPixels(source, undefined, options, (pixels) => applyColorMatrix(pixels, filterColorMatrix(op.name, op.amount)))
-    case "blur":
-      return op.radius > 0
-        ? withPixels(source, op.rect, options, (pixels) => blurPixels(pixels, op.radius))
-        : copyImageSource(source, options)
-    case "sharpen":
-      return op.amount > 0
-        ? withPixels(source, undefined, options, (pixels) => sharpenPixels(pixels, op.amount))
-        : copyImageSource(source, options)
-    case "pixelate":
-      return op.size >= MIN_PIXELATE_SIZE
-        ? withPixels(source, op.rect, options, (pixels) => pixelatePixels(pixels, op.size))
-        : copyImageSource(source, options)
+    case "rotate":
+      return rotateQuarter(source, op, options)
+    case "flip":
+      return flip(source, op, options)
+    case "crop":
+      return crop(source, op, options)
+    case "straighten":
+      return straighten(source, op, options)
+    case "resize":
+      return resize(source, op, options)
     case "stroke":
       return drawOver(source, options, (context) => drawStroke(context, op))
     case "shape":
       return drawOver(source, options, (context) => drawShape(context, op))
     case "text":
       return drawOver(source, options, (context) => drawText(context, op))
+    default: {
+      const pixels = pixelChangeOf(op)
+      return pixels ? withPixels(source, pixels.rect, options, pixels.change) : copyImageSource(source, options)
+    }
   }
 }
 
