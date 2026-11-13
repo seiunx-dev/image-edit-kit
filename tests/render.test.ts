@@ -267,7 +267,7 @@ describe("drawing operations", () => {
   })
 
   it("draws text, line by line, with an outline when asked", () => {
-    const base: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "████", at: { x: 4, y: 4 }, size: 20, color: "#ff0000", font: "sans-serif" }
+    const base: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "MMMM", at: { x: 4, y: 4 }, size: 20, color: "#ff0000", font: "sans-serif" }
     const count = (canvas: EditCanvas, match: (pixel: number[]) => boolean) => {
       const data = getEditContext(canvas).getImageData(0, 0, canvas.width, canvas.height).data
       let total = 0
@@ -281,7 +281,7 @@ describe("drawing operations", () => {
     const isRed = (pixel: number[]) => pixel[0]! > 200 && pixel[1]! < 60 && pixel[2]! < 60
     const isBlue = (pixel: number[]) => pixel[2]! > 200 && pixel[0]! < 60 && pixel[1]! < 60
     const single = applyImageEditOp(paint(120, 80, () => WHITE), base, options)
-    const double = applyImageEditOp(paint(120, 80, () => WHITE), { ...base, text: "████\n████" }, options)
+    const double = applyImageEditOp(paint(120, 80, () => WHITE), { ...base, text: "MMMM\nMMMM" }, options)
     expect(count(single, isRed)).toBeGreaterThan(100)
     expect(count(double, isRed)).toBeGreaterThan(count(single, isRed) * 1.6)
     const outlined = applyImageEditOp(paint(120, 80, () => WHITE), { ...base, outline: { color: "#0000ff", width: 3 } }, options)
