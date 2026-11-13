@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # dry run: gate + pack, no release
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Gate
+    permissions:
+      contents: read
+      checks: read
+    uses: seiunx-dev/ci-templates/.github/workflows/release-gate.yml@v1
+    with:
+      version-source: package-json
+
+  # ci-templates has no npm-pack job: build the library and pack the tarball
+  # that hosts install (dist + src).
+  pack:
+    name: Pack
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun pm pack
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-npm
+          path: image-edit-kit-*.tgz
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [gate, pack]
+    if: needs.gate.outputs.is-tag == 'true'
+    permissions:
+      contents: write
+    uses: seiunx-dev/ci-templates/.github/workflows/gh-release.yml@v1
+    with:
+      tag: ${{ needs.gate.outputs.tag }}
+      prerelease: ${{ needs.gate.outputs.prerelease }}
+      body-path: docs/releases/{tag}.md

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# PRs: one group per PR, newer pushes cancel older runs. Everything else: one group per
+# event and commit, so every main commit keeps its own "CI OK" for the release gate.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.event_name, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check
+    uses: seiunx-dev/ci-templates/.github/workflows/node-ci.yml@v1
+    with:
+      # unit tests run once, with lcov for Sonar
+      test-command: bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage
+      coverage-path: coverage/lcov.info
+
+  sonar:
+    name: Sonar
+    needs: [check]
+    uses: seiunx-dev/ci-templates/.github/workflows/sonar.yml@v1
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  workflows:
+    name: Workflow lint
+    uses: seiunx-dev/ci-templates/.github/workflows/actionlint.yml@v1
+
+  ci-ok:
+    name: CI OK # the only required status check
+    if: always()
+    needs: [check, sonar, workflows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

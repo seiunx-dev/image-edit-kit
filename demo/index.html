@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>image-edit-kit demo</title>
+    <style>
+      :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+      body { margin: 0 auto; max-width: 960px; padding: 16px; }
+      h1 { font-size: 18px; margin: 0 0 12px; }
+      .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+      button, select, input { font: inherit; }
+      button { padding: 4px 10px; }
+      #stage { position: relative; display: inline-block; max-width: 100%; touch-action: none; }
+      #view { display: block; max-width: 100%; max-height: 70vh; background: repeating-conic-gradient(#8883 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+      #info { color: gray; font-variant-numeric: tabular-nums; }
+      label { display: inline-flex; gap: 4px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <h1>image-edit-kit</h1>
+    <div class="bar">
+      <input id="file" type="file" accept="image/*">
+      <span id="info"></span>
+    </div>
+    <div class="bar" id="tools">
+      <button data-op='{"kind":"rotate","turns":-1}'>Rotate left</button>
+      <button data-op='{"kind":"rotate","turns":1}'>Rotate right</button>
+      <button data-op='{"kind":"flip","axis":"horizontal"}'>Flip</button>
+      <button data-op='{"kind":"straighten","degrees":5}'>Tilt 5°</button>
+      <button data-op='{"kind":"adjust","brightness":15,"contrast":15,"saturation":20}'>Punch up</button>
+      <button data-op='{"kind":"filter","name":"grayscale"}'>Greyscale</button>
+      <button data-op='{"kind":"filter","name":"sepia"}'>Sepia</button>
+      <button data-op='{"kind":"blur","radius":8}'>Blur</button>
+      <button data-op='{"kind":"sharpen","amount":50}'>Sharpen</button>
+      <label>Drag on the picture:
+        <select id="drag">
+          <option value="stroke">draw</option>
+          <option value="arrow">arrow</option>
+          <option value="rect">box</option>
+          <option value="pixelate">mosaic</option>
+          <option value="blur">blur region</option>
+          <option value="crop">crop</option>
+        </select>
+      </label>
+      <input id="color" type="color" value="#ff3b30" aria-label="Colour">
+    </div>
+    <div class="bar">
+      <button id="undo">Undo</button>
+      <button id="redo">Redo</button>
+      <button id="reset">Reset</button>
+      <label>Save as
+        <select id="format"></select>
+      </label>
+      <label>Quality <input id="quality" type="range" min="0.1" max="1" step="0.01" value="0.92"></label>
+      <button id="save">Save</button>
+    </div>
+    <div id="stage"><canvas id="view" width="640" height="360"></canvas></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
