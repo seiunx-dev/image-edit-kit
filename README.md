@@ -81,7 +81,7 @@ Every coordinate is in pixels of the picture as it is when the operation is appl
 | `pixelate` | `size`, `rect?` | Mosaic over the region, or the whole picture |
 | `stroke` | `points`, `color`, `width`, `opacity?` | A freehand line |
 | `shape` | `shape: "line" \| "arrow" \| "rect" \| "ellipse"`, `from`, `to`, `color`, `width`, `fill?` | A line, an arrow pointing at `to`, or a box / ellipse between two corners |
-| `text` | `text`, `at`, `size`, `color`, `font?`, `weight?`, `italic?`, `align?`, `outline?`, `background?` | Text, `\n` starts a new line; `outline` draws a line around the letters, `background` a plate behind them |
+| `text` | `text`, `at`, `size`, `color`, `font?`, `weight?`, `italic?`, `align?`, `outline?`, `background?`, `rotation?` | Text, `\n` starts a new line; `outline` draws a line around the letters, `background` a plate behind them, `rotation` turns it about its centre (degrees, clockwise) |
 
 Operations are plain JSON. `parseImageEditOps(value)` reads a list back from storage or a URL and returns `null` unless every entry is valid.
 

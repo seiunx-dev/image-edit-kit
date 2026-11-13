@@ -341,6 +341,32 @@ describe("drawing operations", () => {
     expect(right.width).toBeCloseTo(left.width, 5)
   })
 
+  it("turns text about the centre of its box", () => {
+    // A wide plate, turned a quarter: it becomes tall, around the same centre.
+    const base: Extract<ImageEditOp, { kind: "text" }> = {
+      kind: "text", text: "MMMMMM", at: { x: 60, y: 50 }, size: 16, color: "#0000ff", font: TEST_FONT, align: "center",
+      background: { color: "#0000ff", padding: 2, radius: 0 },
+    }
+    const box = measureImageTextBox(base, options)
+    const centreX = box.x + box.width / 2
+    const centreY = box.y + box.height / 2
+    expect(box.width).toBeGreaterThan(box.height * 2)
+    const flat = applyImageEditOp(paint(120, 120, () => WHITE), base, options)
+    const turned = applyImageEditOp(paint(120, 120, () => WHITE), { ...base, rotation: 90 }, options)
+    const reach = Math.round(box.width / 2) - 4
+    expect(pixelAt(flat, Math.round(centreX) + reach, Math.round(centreY))).toEqual(BLUE)
+    expect(pixelAt(flat, Math.round(centreX), Math.round(centreY) + reach)).toEqual(WHITE)
+    expect(pixelAt(turned, Math.round(centreX) + reach, Math.round(centreY))).toEqual(WHITE)
+    expect(pixelAt(turned, Math.round(centreX), Math.round(centreY) + reach)).toEqual(BLUE)
+    expect(pixelAt(turned, Math.round(centreX), Math.round(centreY) - reach)).toEqual(BLUE)
+    // The measured box is the unturned one.
+    expect(measureImageTextBox({ ...base, rotation: 90 }, options)).toEqual(box)
+    // Later drawing is not turned.
+    const after = applyImageEditOp(turned, { kind: "shape", shape: "rect", from: { x: 0, y: 0 }, to: { x: 10, y: 4 }, color: "#000", width: 0, fill: "#ff0000" }, options)
+    expect(pixelAt(after, 8, 2)).toEqual(RED)
+    expect(pixelAt(after, 2, 8)).toEqual(WHITE)
+  })
+
   it("slants italic text", () => {
     const base: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "IIII", at: { x: 10, y: 10 }, size: 40, color: "#000000", font: TEST_FONT }
     const upright = applyImageEditOp(paint(160, 70, () => WHITE), base, options)

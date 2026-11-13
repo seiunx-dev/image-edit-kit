@@ -66,7 +66,8 @@ export type ImageEditOp =
    * `font` a CSS font family, `weight` a CSS font weight, `outline` a line
    * drawn around the letters, `background` a plate behind the lines
    * (`padding` around them and corner `radius`, in pixels; both default to a
-   * fraction of the font size).
+   * fraction of the font size), `rotation` a turn about the centre of the
+   * text's box, clockwise in degrees.
    */
   | {
       kind: "text"
@@ -80,6 +81,7 @@ export type ImageEditOp =
       align?: ImageTextAlign
       outline?: { color: string; width: number }
       background?: { color: string; padding?: number; radius?: number }
+      rotation?: number
     }
 
 export type ImageEditOpKind = ImageEditOp["kind"]
@@ -360,6 +362,9 @@ export function parseImageEditOp(value: unknown): ImageEditOp | null {
       if (value.italic != null && typeof value.italic !== "boolean") {
         return null
       }
+      if (value.rotation != null && !finite(value.rotation)) {
+        return null
+      }
       let background: { color: string; padding?: number; radius?: number } | undefined
       if (value.background != null) {
         const plate = value.background
@@ -388,6 +393,7 @@ export function parseImageEditOp(value: unknown): ImageEditOp | null {
         ...(value.align != null ? { align: value.align } : {}),
         ...(outline ? { outline } : {}),
         ...(background ? { background } : {}),
+        ...(value.rotation != null ? { rotation: value.rotation } : {}),
       }
     }
     default:

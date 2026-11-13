@@ -125,7 +125,7 @@ describe("parsing", () => {
       { kind: "pixelate", size: 16 },
       { kind: "stroke", points: [{ x: 1, y: 2 }, { x: 3, y: 4 }], color: "#ff0000", width: 6, opacity: 0.5 },
       { kind: "shape", shape: "arrow", from: { x: 0, y: 0 }, to: { x: 50, y: 50 }, color: "red", width: 4, fill: "blue" },
-      { kind: "text", text: "a\nb", at: { x: 5, y: 6 }, size: 24, color: "#fff", font: "serif", weight: 700, italic: true, align: "center", outline: { color: "#000", width: 2 }, background: { color: "#0008", padding: 4, radius: 6 } },
+      { kind: "text", text: "a\nb", at: { x: 5, y: 6 }, size: 24, color: "#fff", font: "serif", weight: 700, italic: true, align: "center", outline: { color: "#000", width: 2 }, background: { color: "#0008", padding: 4, radius: 6 }, rotation: -30 },
       { kind: "text", text: "plain plate", at: { x: 0, y: 0 }, size: 12, color: "#000", background: { color: "#fff" } },
     ]
     expect(parseImageEditOps(JSON.parse(JSON.stringify(ops)))).toEqual(ops)
@@ -180,6 +180,7 @@ describe("parsing", () => {
       { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", align: "justify" },
       { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", outline: { color: "#000" } },
       { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", italic: "yes" },
+      { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", rotation: "90" },
       { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", background: "#fff" },
       { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", background: { color: "" } },
       { kind: "text", text: "x", at: { x: 0, y: 0 }, size: 10, color: "#000", background: { color: "#fff", padding: -1 } },

@@ -81,7 +81,7 @@ const { blob } = await exportImageEdit(bitmap, [], { format: "jpeg" })
 | `pixelate` | `size`、`rect?` | 给指定区域打马赛克，不给区域则是整张图 |
 | `stroke` | `points`、`color`、`width`、`opacity?` | 画笔线条 |
 | `shape` | `shape: "line" \| "arrow" \| "rect" \| "ellipse"`、`from`、`to`、`color`、`width`、`fill?` | 直线、指向 `to` 的箭头，或以两点为对角的矩形 / 椭圆 |
-| `text` | `text`、`at`、`size`、`color`、`font?`、`weight?`、`italic?`、`align?`、`outline?`、`background?` | 文字，`\n` 换行；`outline` 是描边，`background` 是文字后面的衬底 |
+| `text` | `text`、`at`、`size`、`color`、`font?`、`weight?`、`italic?`、`align?`、`outline?`、`background?`、`rotation?` | 文字，`\n` 换行；`outline` 是描边，`background` 是文字后面的衬底，`rotation` 让文字绕自身中心旋转（角度，顺时针） |
 
 操作都是普通 JSON。`parseImageEditOps(value)` 用来从存储或 URL 读回操作列表，只要有一项不合法就返回 `null`。
 

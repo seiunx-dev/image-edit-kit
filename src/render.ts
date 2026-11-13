@@ -266,8 +266,15 @@ function drawText(context: EditContext, op: TextOp): void {
   }
   context.font = textFont(op)
   context.textBaseline = "top"
+  const box = textLinesBox(context, op)
+  if (op.rotation) {
+    const centreX = box.x + box.width / 2
+    const centreY = box.y + box.height / 2
+    context.translate(centreX, centreY)
+    context.rotate((op.rotation * Math.PI) / 180)
+    context.translate(-centreX, -centreY)
+  }
   if (op.background) {
-    const box = textLinesBox(context, op)
     const padding = textPadding(op)
     const radius = Math.min(
       op.background.radius ?? op.size * TEXT_BACKGROUND_RADIUS,
@@ -319,7 +326,9 @@ export function measureImageText(op: TextOp, options?: RenderOptions): ImageSize
 /**
  * Where a text operation lands on the picture: the rectangle around its
  * lines, placed by its alignment and grown by the plate's padding when it has
- * a background. For drawing a frame around text that is being moved.
+ * a background. For drawing a frame around text that is being moved. The
+ * rectangle is the one before `rotation`: rotated text is this rectangle
+ * turned about its own centre.
  */
 export function measureImageTextBox(op: TextOp, options?: RenderOptions): ImageRect {
   const { context } = blank({ width: 1, height: 1 }, options)
