@@ -231,16 +231,58 @@ function drawShape(context: EditContext, op: Extract<ImageEditOp, { kind: "shape
 /** Line height as a multiple of the font size. */
 export const TEXT_LINE_HEIGHT = 1.25
 
-function textFont(op: Extract<ImageEditOp, { kind: "text" }>): string {
-  return `${op.weight ?? 600} ${op.size}px ${op.font ?? "sans-serif"}`
+type TextOp = Extract<ImageEditOp, { kind: "text" }>
+
+function textFont(op: TextOp): string {
+  return `${op.italic ? "italic " : ""}${op.weight ?? 600} ${op.size}px ${op.font ?? "sans-serif"}`
 }
 
-function drawText(context: EditContext, op: Extract<ImageEditOp, { kind: "text" }>): void {
+/** A text plate's padding when none is given, as a multiple of the font size. */
+export const TEXT_BACKGROUND_PADDING = 0.3
+/** A text plate's corner radius when none is given, as a multiple of the font size. */
+export const TEXT_BACKGROUND_RADIUS = 0.2
+
+/** The lines' box: as wide as the widest line, placed by the alignment, without any padding. */
+function textLinesBox(context: EditContext, op: TextOp): ImageRect {
+  const lines = op.text.split("\n")
+  const width = Math.max(0, ...lines.map((line) => context.measureText(line).width))
+  const align = op.align ?? "left"
+  return {
+    x: align === "left" ? op.at.x : align === "center" ? op.at.x - width / 2 : op.at.x - width,
+    y: op.at.y,
+    // The last line has no line gap under it.
+    width,
+    height: (lines.length - 1) * op.size * TEXT_LINE_HEIGHT + op.size,
+  }
+}
+
+function textPadding(op: TextOp): number {
+  return op.background ? op.background.padding ?? op.size * TEXT_BACKGROUND_PADDING : 0
+}
+
+function drawText(context: EditContext, op: TextOp): void {
   if (!(op.size > 0)) {
     return
   }
   context.font = textFont(op)
   context.textBaseline = "top"
+  if (op.background) {
+    const box = textLinesBox(context, op)
+    const padding = textPadding(op)
+    const radius = Math.min(
+      op.background.radius ?? op.size * TEXT_BACKGROUND_RADIUS,
+      (box.width + padding * 2) / 2,
+      (box.height + padding * 2) / 2,
+    )
+    context.fillStyle = op.background.color
+    context.beginPath()
+    if (radius > 0 && typeof context.roundRect === "function") {
+      context.roundRect(box.x - padding, box.y - padding, box.width + padding * 2, box.height + padding * 2, radius)
+    } else {
+      context.rect(box.x - padding, box.y - padding, box.width + padding * 2, box.height + padding * 2)
+    }
+    context.fill()
+  }
   context.textAlign = op.align ?? "left"
   context.fillStyle = op.color
   const outline = op.outline && op.outline.width > 0 ? op.outline : null
@@ -260,16 +302,35 @@ function drawText(context: EditContext, op: Extract<ImageEditOp, { kind: "text" 
 }
 
 /**
- * The box a text operation's lines take up (widest line × line count), for
- * placing it before it is drawn. Needs a canvas to measure with.
+ * The size of a text operation's lines (widest line × line count, each line
+ * a full line height), for placing it before it is drawn. Needs a canvas to
+ * measure with.
  */
-export function measureImageText(op: Extract<ImageEditOp, { kind: "text" }>, options?: RenderOptions): ImageSize {
+export function measureImageText(op: TextOp, options?: RenderOptions): ImageSize {
   const { context } = blank({ width: 1, height: 1 }, options)
   context.font = textFont(op)
   const lines = op.text.split("\n")
   return {
     width: Math.ceil(Math.max(0, ...lines.map((line) => context.measureText(line).width))),
     height: Math.ceil(lines.length * op.size * TEXT_LINE_HEIGHT),
+  }
+}
+
+/**
+ * Where a text operation lands on the picture: the rectangle around its
+ * lines, placed by its alignment and grown by the plate's padding when it has
+ * a background. For drawing a frame around text that is being moved.
+ */
+export function measureImageTextBox(op: TextOp, options?: RenderOptions): ImageRect {
+  const { context } = blank({ width: 1, height: 1 }, options)
+  context.font = textFont(op)
+  const box = textLinesBox(context, op)
+  const padding = textPadding(op)
+  return {
+    x: box.x - padding,
+    y: box.y - padding,
+    width: box.width + padding * 2,
+    height: box.height + padding * 2,
   }
 }
 

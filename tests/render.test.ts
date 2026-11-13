@@ -6,7 +6,9 @@ import {
   createEditCanvas,
   getEditContext,
   imageSourceSize,
+  TEXT_BACKGROUND_PADDING,
   measureImageText,
+  measureImageTextBox,
   paintImageSource,
   renderImageEdit,
   resolveEditedImageSize,
@@ -291,6 +293,69 @@ describe("drawing operations", () => {
     const right = applyImageEditOp(paint(120, 80, () => WHITE), { ...base, at: { x: 116, y: 4 }, align: "right" }, options)
     expect(count(right, isRed)).toBeGreaterThan(100)
     expect(pixelAt(applyImageEditOp(paint(20, 20, () => WHITE), { ...base, size: 0 }, options), 10, 10)).toEqual(WHITE)
+  })
+
+  it("puts a plate behind the text, sized to the lines plus padding", () => {
+    const base: Extract<ImageEditOp, { kind: "text" }> = {
+      kind: "text", text: "MM\nMMMM", at: { x: 60, y: 20 }, size: 20, color: "#ff0000", font: TEST_FONT, align: "center",
+      background: { color: "#0000ff", padding: 6, radius: 0 },
+    }
+    const box = measureImageTextBox(base, options)
+    // Two lines: one line height plus one font size, plus the padding on both sides.
+    expect(box.height).toBe(20 * 1.25 + 20 + 12)
+    expect(box.y).toBe(14)
+    expect(Math.abs(box.x + box.width / 2 - 60)).toBeLessThan(0.01)
+    const drawn = applyImageEditOp(paint(120, 90, () => WHITE), base, options)
+    expect(pixelAt(drawn, Math.round(box.x) + 2, 16)).toEqual(BLUE)
+    expect(pixelAt(drawn, Math.round(box.x + box.width) - 3, Math.round(box.y + box.height) - 3)).toEqual(BLUE)
+    expect(pixelAt(drawn, Math.round(box.x) - 3, 30)).toEqual(WHITE)
+    expect(pixelAt(drawn, 60, Math.round(box.y + box.height) + 3)).toEqual(WHITE)
+
+    // Rounded by default: the very corner stays clear, the middle of the edge is filled.
+    const rounded = applyImageEditOp(paint(120, 90, () => WHITE), { ...base, background: { color: "#0000ff" } }, options)
+    const plate = measureImageTextBox({ ...base, background: { color: "#0000ff" } }, options)
+    expect(plate.width).toBeCloseTo(box.width - 12 + 2 * 20 * TEXT_BACKGROUND_PADDING, 5)
+    expect(pixelAt(rounded, Math.round(plate.x), Math.round(plate.y))).toEqual(WHITE)
+    expect(pixelAt(rounded, 60, Math.round(plate.y) + 1)).toEqual(BLUE)
+
+    // A canvas without roundRect still gets a plate.
+    const square = applyImageEditOp(paint(120, 90, () => WHITE), { ...base, background: { color: "#0000ff", radius: 8 } }, {
+      createCanvas: (width, height) => {
+        const canvas = createTestCanvas(width, height)
+        const context = getEditContext(canvas) as unknown as { roundRect?: unknown }
+        context.roundRect = undefined
+        return canvas
+      },
+    })
+    expect(pixelAt(square, Math.round(box.x) + 1, Math.round(box.y) + 1)).toEqual(BLUE)
+  })
+
+  it("places the box by the alignment and leaves it unpadded without a plate", () => {
+    const text: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "MMMM", at: { x: 50, y: 10 }, size: 20, color: "#000", font: TEST_FONT }
+    const left = measureImageTextBox(text, options)
+    const right = measureImageTextBox({ ...text, align: "right" }, options)
+    expect(left.x).toBe(50)
+    expect(left.y).toBe(10)
+    expect(left.height).toBe(20)
+    expect(right.x + right.width).toBeCloseTo(50, 5)
+    expect(right.width).toBeCloseTo(left.width, 5)
+  })
+
+  it("slants italic text", () => {
+    const base: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "IIII", at: { x: 10, y: 10 }, size: 40, color: "#000000", font: TEST_FONT }
+    const upright = applyImageEditOp(paint(160, 70, () => WHITE), base, options)
+    const italic = applyImageEditOp(paint(160, 70, () => WHITE), { ...base, italic: true }, options)
+    const columnsAt = (canvas: EditCanvas, y: number) => {
+      const row = getEditContext(canvas).getImageData(0, y, canvas.width, 1).data
+      const dark: number[] = []
+      for (let x = 0; x < canvas.width; x += 1) {
+        if (row[x * 4]! < 128) dark.push(x)
+      }
+      return dark
+    }
+    // Upright stems sit in the same columns near the top and the bottom; slanted ones do not.
+    expect(columnsAt(upright, 22)[0]).toBe(columnsAt(upright, 40)[0]!)
+    expect(columnsAt(italic, 22)[0]).toBeGreaterThan(columnsAt(italic, 40)[0]!)
   })
 
   it("measures text before drawing it", () => {

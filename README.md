@@ -81,7 +81,7 @@ Every coordinate is in pixels of the picture as it is when the operation is appl
 | `pixelate` | `size`, `rect?` | Mosaic over the region, or the whole picture |
 | `stroke` | `points`, `color`, `width`, `opacity?` | A freehand line |
 | `shape` | `shape: "line" \| "arrow" \| "rect" \| "ellipse"`, `from`, `to`, `color`, `width`, `fill?` | A line, an arrow pointing at `to`, or a box / ellipse between two corners |
-| `text` | `text`, `at`, `size`, `color`, `font?`, `weight?`, `align?`, `outline?` | Text, `\n` starts a new line |
+| `text` | `text`, `at`, `size`, `color`, `font?`, `weight?`, `italic?`, `align?`, `outline?`, `background?` | Text, `\n` starts a new line; `outline` draws a line around the letters, `background` a plate behind them |
 
 Operations are plain JSON. `parseImageEditOps(value)` reads a list back from storage or a URL and returns `null` unless every entry is valid.
 
@@ -104,7 +104,7 @@ Operations are plain JSON. `parseImageEditOps(value)` reads a list back from sto
 | `renderImageEdit(source, ops, options?)` | The source with every operation replayed, on a new canvas |
 | `applyImageEditOp(source, op, options?)` | One operation, on a new canvas. Keep the canvas of the committed operations and apply a draft on top of it for a live preview |
 | `paintImageSource(target, source)` | Draws a result onto a canvas on the page |
-| `measureImageText(op, options?)` | The box a text operation takes up |
+| `measureImageText(op, options?)`, `measureImageTextBox(op, options?)` | The size of a text operation's lines, and the rectangle it lands on (alignment and plate padding included) |
 | `createEditCanvas(width, height)` | The default canvas factory |
 
 `source` is an `ImageBitmap`, an `<img>`, a canvas or an `OffscreenCanvas`. `options.createCanvas` supplies the canvases: by default a canvas element in a page and an `OffscreenCanvas` in a worker. On a server, pass a factory from any library with the standard 2D API:

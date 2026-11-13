@@ -81,7 +81,7 @@ const { blob } = await exportImageEdit(bitmap, [], { format: "jpeg" })
 | `pixelate` | `size`、`rect?` | 给指定区域打马赛克，不给区域则是整张图 |
 | `stroke` | `points`、`color`、`width`、`opacity?` | 画笔线条 |
 | `shape` | `shape: "line" \| "arrow" \| "rect" \| "ellipse"`、`from`、`to`、`color`、`width`、`fill?` | 直线、指向 `to` 的箭头，或以两点为对角的矩形 / 椭圆 |
-| `text` | `text`、`at`、`size`、`color`、`font?`、`weight?`、`align?`、`outline?` | 文字，`\n` 换行 |
+| `text` | `text`、`at`、`size`、`color`、`font?`、`weight?`、`italic?`、`align?`、`outline?`、`background?` | 文字，`\n` 换行；`outline` 是描边，`background` 是文字后面的衬底 |
 
 操作都是普通 JSON。`parseImageEditOps(value)` 用来从存储或 URL 读回操作列表，只要有一项不合法就返回 `null`。
 
@@ -104,7 +104,7 @@ const { blob } = await exportImageEdit(bitmap, [], { format: "jpeg" })
 | `renderImageEdit(source, ops, options?)` | 在新画布上重放所有操作 |
 | `applyImageEditOp(source, op, options?)` | 在新画布上执行一个操作。保留“已确认操作”的画布，再把草稿操作叠上去，就能实时预览 |
 | `paintImageSource(target, source)` | 把结果画到页面上的 canvas |
-| `measureImageText(op, options?)` | 文字操作占用的宽高 |
+| `measureImageText(op, options?)`、`measureImageTextBox(op, options?)` | 文字各行的宽高，以及文字在图片上占据的矩形（含对齐方式和衬底的内边距） |
 | `createEditCanvas(width, height)` | 默认的画布工厂 |
 
 `source` 可以是 `ImageBitmap`、`<img>`、canvas 或 `OffscreenCanvas`。画布由 `options.createCanvas` 提供：默认在页面里用 canvas 元素，在 worker 里用 `OffscreenCanvas`。在服务端，传入任何实现了标准 2D API 的库的工厂即可：

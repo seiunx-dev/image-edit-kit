@@ -64,7 +64,9 @@ export type ImageEditOp =
    * Text whose first line starts at `at` (its top; the left, centre or right
    * of each line according to `align`). `size` is the font size in pixels,
    * `font` a CSS font family, `weight` a CSS font weight, `outline` a line
-   * drawn around the letters.
+   * drawn around the letters, `background` a plate behind the lines
+   * (`padding` around them and corner `radius`, in pixels; both default to a
+   * fraction of the font size).
    */
   | {
       kind: "text"
@@ -74,8 +76,10 @@ export type ImageEditOp =
       color: string
       font?: string
       weight?: number | string
+      italic?: boolean
       align?: ImageTextAlign
       outline?: { color: string; width: number }
+      background?: { color: string; padding?: number; radius?: number }
     }
 
 export type ImageEditOpKind = ImageEditOp["kind"]
@@ -353,6 +357,25 @@ export function parseImageEditOp(value: unknown): ImageEditOp | null {
         }
         outline = { color: value.outline.color, width: value.outline.width }
       }
+      if (value.italic != null && typeof value.italic !== "boolean") {
+        return null
+      }
+      let background: { color: string; padding?: number; radius?: number } | undefined
+      if (value.background != null) {
+        const plate = value.background
+        if (!isRecord(plate) || !color(plate.color)) {
+          return null
+        }
+        if ((plate.padding != null && !(finite(plate.padding) && plate.padding >= 0))
+          || (plate.radius != null && !(finite(plate.radius) && plate.radius >= 0))) {
+          return null
+        }
+        background = {
+          color: plate.color,
+          ...(plate.padding != null ? { padding: plate.padding } : {}),
+          ...(plate.radius != null ? { radius: plate.radius } : {}),
+        }
+      }
       return {
         kind: "text",
         text: value.text,
@@ -361,8 +384,10 @@ export function parseImageEditOp(value: unknown): ImageEditOp | null {
         color: value.color,
         ...(value.font != null ? { font: value.font } : {}),
         ...(value.weight != null ? { weight: value.weight } : {}),
+        ...(value.italic != null ? { italic: value.italic } : {}),
         ...(value.align != null ? { align: value.align } : {}),
         ...(outline ? { outline } : {}),
+        ...(background ? { background } : {}),
       }
     }
     default:
