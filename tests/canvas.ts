@@ -1,10 +1,21 @@
-import { createCanvas } from "@napi-rs/canvas"
+import { fileURLToPath } from "node:url"
+import { GlobalFonts, createCanvas } from "@napi-rs/canvas"
 import { getEditContext, type CanvasFactory, type EditCanvas } from "../src/index"
 
 /** A real Canvas 2D implementation for the tests (there is no DOM under Bun). */
 export const createTestCanvas: CanvasFactory = (width, height) => createCanvas(width, height) as unknown as EditCanvas
 
 export const options = { createCanvas: createTestCanvas }
+
+/**
+ * A font the tests bring along: which fonts a machine has, and whether its
+ * generic "sans-serif" has any glyphs at all, differs between systems.
+ */
+export const TEST_FONT = "Edit Kit Test Sans"
+GlobalFonts.registerFromPath(
+  fileURLToPath(new URL("../node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf", import.meta.url)),
+  TEST_FONT,
+)
 
 export type Rgba = [number, number, number, number]
 

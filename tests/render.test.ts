@@ -15,7 +15,7 @@ import {
   type ImageEditOp,
   type ImageSource,
 } from "../src/index"
-import { BLACK, BLUE, GREEN, RED, WHITE, createTestCanvas, options, paint, pixelAt, quadrants, sizeOf } from "./canvas"
+import { BLACK, BLUE, GREEN, RED, TEST_FONT, WHITE, createTestCanvas, options, paint, pixelAt, quadrants, sizeOf } from "./canvas"
 
 function near(actual: number[], expected: number[], tolerance = 3): boolean {
   return actual.every((value, index) => Math.abs(value - expected[index]!) <= tolerance)
@@ -267,7 +267,7 @@ describe("drawing operations", () => {
   })
 
   it("draws text, line by line, with an outline when asked", () => {
-    const base: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "MMMM", at: { x: 4, y: 4 }, size: 20, color: "#ff0000", font: "sans-serif" }
+    const base: Extract<ImageEditOp, { kind: "text" }> = { kind: "text", text: "MMMM", at: { x: 4, y: 4 }, size: 20, color: "#ff0000", font: TEST_FONT }
     const count = (canvas: EditCanvas, match: (pixel: number[]) => boolean) => {
       const data = getEditContext(canvas).getImageData(0, 0, canvas.width, canvas.height).data
       let total = 0
@@ -294,8 +294,8 @@ describe("drawing operations", () => {
   })
 
   it("measures text before drawing it", () => {
-    const one = measureImageText({ kind: "text", text: "Hello", at: { x: 0, y: 0 }, size: 20, color: "#000" }, options)
-    const two = measureImageText({ kind: "text", text: "Hello\nHello there", at: { x: 0, y: 0 }, size: 20, color: "#000", weight: 400, font: "serif" }, options)
+    const one = measureImageText({ kind: "text", text: "Hello", at: { x: 0, y: 0 }, size: 20, color: "#000", font: TEST_FONT }, options)
+    const two = measureImageText({ kind: "text", text: "Hello\nHello there", at: { x: 0, y: 0 }, size: 20, color: "#000", weight: 400, font: TEST_FONT }, options)
     expect(one.height).toBe(25)
     expect(two.height).toBe(50)
     expect(one.width).toBeGreaterThan(20)
